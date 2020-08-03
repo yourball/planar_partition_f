@@ -2,6 +2,7 @@ import numpy as np
 from .graph_edges_mapping import GraphEdgesMapping
 from .. import common_utils
 from ..planar_graph import PlanarGraphEdges, PlanarGraph, search_utils
+from mpmath import matrix, mpf
 
 
 class ExpandedDualGraphConstructor:
@@ -40,7 +41,7 @@ class ExpandedDualGraphConstructor:
             for edge_index in graph.get_incident_edge_indices(np.int32(vertex)):
 
                 next_edge_index = graph.edges.get_next_edge_index(edge_index, vertex)
-     
+
                 dual_vertex = ExpandedDualGraphConstructor._get_corresponding_dual_vertex(
                         graph.edges, edge_index, vertex, expanded_dual_graph_edges, edge_index)
                 next_dual_vertex = ExpandedDualGraphConstructor._get_corresponding_dual_vertex(
@@ -77,11 +78,11 @@ class ExpandedDualGraphConstructor:
         # never used
         expanded_dual_graph_vertex_costs = np.ones(expanded_dual_graph_vertices_count)/\
                 expanded_dual_graph_vertices_count
- 
+
         return GraphEdgesMapping(first_dual_edges_mapping, second_dual_edges_mapping), \
                 PlanarGraph(expanded_dual_graph_vertex_costs,
                 expanded_dual_graph_incident_edge_example_indices, expanded_dual_graph_edges)
- 
+
     @staticmethod
     def _get_corresponding_dual_vertex(edges, edge_index, vertex, expanded_dual_graph_edges,
             dual_edge_index):
@@ -94,12 +95,15 @@ class ExpandedDualGraphConstructor:
     @staticmethod
     def get_expanded_dual_graph_log_weights(interaction_values, graph_edges_mapping):
 
-        log_weights = np.zeros(graph_edges_mapping.size)
+        # log_weights = np.zeros(graph_edges_mapping.size)
+        log_weights = matrix([[mpf('0') for i in range(graph_edges_mapping.size)]])
 
-        dual_edges_mask = (graph_edges_mapping.second == -1)
+        dual_edges_mask = np.where(graph_edges_mapping.second == -1)[0]
 
-        log_weights[dual_edges_mask] = \
-                interaction_values[graph_edges_mapping.first[dual_edges_mask]]*2
+        # import pdb; pdb.set_trace()
+        for dual_el in dual_edges_mask:
+            dual_el = int(dual_el)
+            log_weights[dual_el] = interaction_values[int(graph_edges_mapping.first[dual_el])]*2
 
         return log_weights
 
@@ -134,7 +138,7 @@ class ExpandedDualGraphConstructor:
                         dual_vertex)
 
         return kasteleyn_orientation
- 
+
     @staticmethod
     def _get_odd_orientation(graph):
         """

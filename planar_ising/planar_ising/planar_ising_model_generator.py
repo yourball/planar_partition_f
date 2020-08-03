@@ -1,6 +1,7 @@
 import numpy as np
 from .planar_ising_model import PlanarIsingModel
 from ..planar_graph import PlanarGraphGenerator
+from mpmath import matrix, mpf
 
 
 class PlanarIsingModelGenerator:
@@ -44,7 +45,7 @@ class PlanarIsingModelGenerator:
 
         graph = PlanarGraphGenerator.generate_triang_lattice_graph(database)
         edges = graph.edges
-        interaction_values = np.zeros(len(database))
+        interaction_values = matrix([[mpf('0') for i in range(len(database))]])
         for idx in range(edges.size):
             v1 = edges._vertex1[idx]
             v2 = edges._vertex2[idx]

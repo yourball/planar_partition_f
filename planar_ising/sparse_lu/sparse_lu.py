@@ -1,23 +1,25 @@
 import numpy as np
 from .csr_matrix import CSRMatrix
-
+from mpmath import log, exp, matrix, mpf, fabs
 
 class SparseLU:
 
     @staticmethod
-    def factorize(matrix):
+    def factorize(mat):
 
         l_column_indices, l_row_first_element_indices, u_column_indices, \
                 u_row_first_element_indices = SparseLU._factorize_symbolically(
-                matrix.column_indices, matrix.row_first_element_indices)
-
-        l_signs, l_logs, u_signs, u_logs = SparseLU._factorize(matrix, l_column_indices,
+                mat.column_indices, mat.row_first_element_indices)
+        print('start LU factorize')
+        l_signs, l_logs, u_signs, u_logs = SparseLU._factorize(mat, l_column_indices,
                 l_row_first_element_indices, u_column_indices, u_row_first_element_indices)
+        print('end LU factorize')
+        # print('l_logs', l_logs)
+        # print('u_logs', u_logs)
+        l_mat = CSRMatrix(l_signs, l_logs, l_column_indices, l_row_first_element_indices)
+        u_mat = CSRMatrix(u_signs, u_logs, u_column_indices, u_row_first_element_indices)
 
-        l_matrix = CSRMatrix(l_signs, l_logs, l_column_indices, l_row_first_element_indices)
-        u_matrix = CSRMatrix(u_signs, u_logs, u_column_indices, u_row_first_element_indices)
-
-        return l_matrix, u_matrix
+        return l_mat, u_mat
 
     @staticmethod
     def _factorize_symbolically(column_indices, row_first_element_indices):
@@ -109,23 +111,23 @@ class SparseLU:
                 np.array(u_column_indices), u_row_first_element_indices
 
     @staticmethod
-    def _factorize(matrix, l_column_indices, l_row_first_element_indices, u_column_indices,
+    def _factorize(mat, l_column_indices, l_row_first_element_indices, u_column_indices,
             u_row_first_element_indices):
 
-        signs = matrix.signs
-        logs = matrix.logs
-        column_indices = matrix.column_indices
-        row_first_element_indices = matrix.row_first_element_indices
+        signs = mat.signs
+        logs = mat.logs
+        column_indices = mat.column_indices
+        row_first_element_indices = mat.row_first_element_indices
 
         size = row_first_element_indices.shape[0] - 1
 
         l_signs = np.zeros(l_column_indices.shape[0])
-        l_logs = np.zeros_like(l_signs)
+        l_logs = matrix([[mpf('0') for i in range(len(l_signs))]])
         u_signs = np.zeros(u_column_indices.shape[0])
-        u_logs = np.zeros_like(u_signs)
+        u_logs = matrix([[mpf('0') for i in range(len(u_signs))]])
 
         buffer_signs = np.zeros(size)
-        buffer_logs = np.zeros_like(buffer_signs)
+        buffer_logs = matrix([[mpf('0') for i in range(len(buffer_signs))]])
 
         for row_index in range(size):
 
@@ -137,7 +139,8 @@ class SparseLU:
                     row_first_element_indices[row_index + 1]]
 
             buffer_signs[row_column_indices] = row_signs
-            buffer_logs[row_column_indices] = row_logs
+            for i, el in enumerate(row_column_indices):
+                buffer_logs[int(el)] = row_logs[i]
 
             l_row_first_element_index = l_row_first_element_indices[row_index]
             l_next_row_first_element_index = l_row_first_element_indices[row_index + 1]
@@ -164,50 +167,57 @@ class SparseLU:
                         u_row_first_element_indices[eliminating_row_index + 1]]
 
                 l_sign = buffer_signs[eliminating_row_index]*eliminating_row_signs[0]
-                l_log = buffer_logs[eliminating_row_index] - eliminating_row_logs[0]
+                l_log = buffer_logs[int(eliminating_row_index)] - eliminating_row_logs[0]
 
                 l_signs[l_row_first_element_index + eliminate_index] = l_sign
-                l_logs[l_row_first_element_index + eliminate_index] = l_log
+                l_logs[int(l_row_first_element_index + eliminate_index)] = l_log
 
+                _buffer_logs = matrix([[buffer_logs[int(idx)] for idx in eliminating_row_column_indices]])
                 result_signs, result_logs = SparseLU._logaddexp(
                         buffer_signs[eliminating_row_column_indices],
-                        buffer_logs[eliminating_row_column_indices],
+                        _buffer_logs,
                         -l_sign*eliminating_row_signs,
                         l_log + eliminating_row_logs)
 
                 buffer_signs[eliminating_row_column_indices] = result_signs
-                buffer_logs[eliminating_row_column_indices] = result_logs
+                #  buffer_logs[eliminating_row_column_indices] = result_logs
+                for i in range(len(eliminating_row_column_indices)):
+                    buffer_logs[int(eliminating_row_column_indices[i])] = result_logs[i]
 
             l_signs[l_next_row_first_element_index - 1] = 1
-            l_logs[l_next_row_first_element_index - 1] = 0
+
+            l_logs[int(l_next_row_first_element_index - 1)] = 0
 
             u_signs[u_row_first_element_index:u_next_row_first_element_index] = \
                     buffer_signs[u_row_column_indices]
-            u_logs[u_row_first_element_index:u_next_row_first_element_index] = \
-                    buffer_logs[u_row_column_indices]
+
+            # u_logs[u_row_first_element_index:u_next_row_first_element_index] = \
+            #                     buffer_logs[u_row_column_indices]
+            for i, idx in enumerate(range(u_row_first_element_index, u_next_row_first_element_index)):
+                u_logs[int(idx)] = buffer_logs[int(u_row_column_indices[i])]
 
             buffer_signs[u_row_column_indices] = 0
 
         return l_signs, l_logs, u_signs, u_logs
 
     @staticmethod
-    def get_logdet_grad(matrix, l_matrix, u_matrix):
+    def get_logdet_grad(mat, l_mat, u_mat):
 
-        signs = matrix.signs
-        logs = matrix.logs
-        column_indices = matrix.column_indices
-        row_first_element_indices = matrix.row_first_element_indices
-        l_signs = l_matrix.signs
-        l_logs = l_matrix.logs
-        l_column_indices = l_matrix.column_indices
-        l_row_first_element_indices = l_matrix.row_first_element_indices
-        u_signs = u_matrix.signs
-        u_logs = u_matrix.logs
-        u_column_indices = u_matrix.column_indices
-        u_row_first_element_indices = u_matrix.row_first_element_indices
+        signs = mat.signs
+        logs = mat.logs
+        column_indices = mat.column_indices
+        row_first_element_indices = mat.row_first_element_indices
+        l_signs = l_mat.signs
+        l_logs = l_mat.logs
+        l_column_indices = l_mat.column_indices
+        l_row_first_element_indices = l_mat.row_first_element_indices
+        u_signs = u_mat.signs
+        u_logs = u_mat.logs
+        u_column_indices = u_mat.column_indices
+        u_row_first_element_indices = u_mat.row_first_element_indices
 
         size = l_row_first_element_indices.shape[0] - 1
- 
+
         grad_signs = np.zeros_like(signs)
         grad_logs = np.zeros_like(logs)
 
@@ -225,7 +235,7 @@ class SparseLU:
             l_next_row_first_element_index = l_row_first_element_indices[row_index + 1]
             l_row_column_indices = l_column_indices[\
                     l_row_first_element_index:l_next_row_first_element_index - 1]
- 
+
             u_row_first_element_index = u_row_first_element_indices[row_index]
             u_next_row_first_element_index = u_row_first_element_indices[row_index + 1]
             u_row_column_indices = u_column_indices[\
@@ -286,10 +296,10 @@ class SparseLU:
                         eliminating_row_grad_logs,
                         -l_sign*buffer_grad_signs[eliminating_row_column_indices],
                         l_log + buffer_grad_logs[eliminating_row_column_indices])
- 
+
                 eliminating_row_grad_signs[:] = result_signs
                 eliminating_row_grad_logs[:] = result_logs
- 
+
             row_column_indices = column_indices[row_first_element_indices[row_index]:\
                     row_first_element_indices[row_index + 1]]
 
@@ -305,24 +315,37 @@ class SparseLU:
             buffer_grad_logs[u_row_column_indices] = 0
 
         #grad = signs*grad_signs*np.exp(logs + grad_logs)
- 
+
         return signs*grad_signs, logs + grad_logs
- 
+
     @staticmethod
     def _logaddexp(signs1, logs1, signs2, logs2):
 
-        max_logs = np.maximum(logs1, logs2)
+        max_logs = matrix([[mpf('0') for i in range(len(logs1))]])
+        for i in range(len(logs1)):
+            max_logs[i] = max(logs1[i], logs2[i])
         #max_logs[np.isinf(max_logs)] = 0
 
-        values1 = signs1*np.exp(logs1 - max_logs)
-        values2 = signs2*np.exp(logs2 - max_logs)
 
+        values1 = matrix([[mpf('0') for i in range(len(logs1))]])
+        values2 = matrix([[mpf('0') for i in range(len(logs2))]])
+
+        for i in range(len(logs1)):
+            values1[i] = signs1[i]*exp(logs1[i] - max_logs[i])
+            values2[i] = signs2[i]*exp(logs2[i] - max_logs[i])
         result = values1 + values2
 
         signs = np.sign(result)
-        logs = np.zeros_like(result)
-        logs[result != 0] = np.log(np.absolute(result[result != 0]))
+        logs = matrix([[mpf('0') for i in range(len(signs))]])
+
+        for i, el in enumerate(result):
+            if el != 0:
+                logs[i] = log(fabs(el))
+        # logs[result != 0] = log(fabs(result[result != 0]))
+        # import pdb; pdb.set_trace()
         logs += max_logs
+
+        # print('logs:', logs)
 
         return signs, logs
 
@@ -335,7 +358,7 @@ class SparseLU:
         #    max_log = 0
 
         result = (signs*np.exp(logs - max_log)).sum()
- 
+
         if result == 0:
             sign = 0
             log = 0
@@ -348,38 +371,38 @@ class SparseLU:
         return sign, log
 
     @staticmethod
-    def get_lower_right_submatrix(matrix, lower_right_submatrix_size):
+    def get_lower_right_submat(mat, lower_right_submat_size):
 
         signs = []
         logs = []
         column_indices = []
-        row_first_element_indices = np.zeros(lower_right_submatrix_size + 1, dtype=int)
+        row_first_element_indices = np.zeros(lower_right_submat_size + 1, dtype=int)
 
-        for row_index in range(lower_right_submatrix_size):
+        for row_index in range(lower_right_submat_size):
 
-            matrix_row_index = matrix.size - lower_right_submatrix_size + row_index
+            mat_row_index = mat.size - lower_right_submat_size + row_index
 
-            matrix_row_first_element_index = matrix.row_first_element_indices[matrix_row_index]
-            matrix_next_row_first_element_index = \
-                    matrix.row_first_element_indices[matrix_row_index + 1]
+            mat_row_first_element_index = mat.row_first_element_indices[mat_row_index]
+            mat_next_row_first_element_index = \
+                    mat.row_first_element_indices[mat_row_index + 1]
 
-            matrix_row_signs = matrix.signs[matrix_row_first_element_index:\
-                    matrix_next_row_first_element_index]
-            matrix_row_logs = matrix.logs[matrix_row_first_element_index:\
-                    matrix_next_row_first_element_index]
-            matrix_row_column_indices = matrix.column_indices[matrix_row_first_element_index:\
-                    matrix_next_row_first_element_index]
+            mat_row_signs = mat.signs[mat_row_first_element_index:\
+                    mat_next_row_first_element_index]
+            mat_row_logs = mat.logs[mat_row_first_element_index:\
+                    mat_next_row_first_element_index]
+            mat_row_column_indices = mat.column_indices[mat_row_first_element_index:\
+                    mat_next_row_first_element_index]
 
-            relevant_column_indices_mask = (matrix_row_column_indices >= matrix.size - \
-                    lower_right_submatrix_size)
+            relevant_column_indices_mask = (mat_row_column_indices >= mat.size - \
+                    lower_right_submat_size)
 
             if not np.any(relevant_column_indices_mask):
                 continue
 
-            signs.append(matrix_row_signs[relevant_column_indices_mask])
-            logs.append(matrix_row_logs[relevant_column_indices_mask])
-            column_indices.append(matrix_row_column_indices[relevant_column_indices_mask] - \
-                    matrix.size + lower_right_submatrix_size)
+            signs.append(mat_row_signs[relevant_column_indices_mask])
+            logs.append(mat_row_logs[relevant_column_indices_mask])
+            column_indices.append(mat_row_column_indices[relevant_column_indices_mask] - \
+                    mat.size + lower_right_submat_size)
 
             row_first_element_indices[row_index + 1] = row_first_element_indices[row_index] + \
                     relevant_column_indices_mask.sum()
@@ -392,17 +415,17 @@ class SparseLU:
                 np.concatenate(column_indices), row_first_element_indices)
 
     @staticmethod
-    def solve(l_matrix, u_matrix, right_hand_side):
+    def solve(l_mat, u_mat, right_hand_side):
 
-        return SparseLU._solve_triangular(u_matrix, SparseLU._solve_triangular(l_matrix,
+        return SparseLU._solve_triangular(u_mat, SparseLU._solve_triangular(l_mat,
                 right_hand_side, False), True)
 
     @staticmethod
-    def _solve_triangular(matrix, right_hand_side, is_upper_triangular):
+    def _solve_triangular(mat, right_hand_side, is_upper_triangular):
 
         solution = np.zeros_like(right_hand_side)
 
-        problem_size = matrix.size
+        problem_size = mat.size
 
         if is_upper_triangular:
             row_indices_range = range(problem_size - 1, -1, -1)
@@ -411,16 +434,16 @@ class SparseLU:
 
         for row_index in row_indices_range:
 
-            row_first_element_index = matrix.row_first_element_indices[row_index]
-            next_row_first_element_index = matrix.row_first_element_indices[row_index + 1]
+            row_first_element_index = mat.row_first_element_indices[row_index]
+            next_row_first_element_index = mat.row_first_element_indices[row_index + 1]
 
-            row_elements = matrix.signs[row_first_element_index:next_row_first_element_index]*\
-                    np.exp(matrix.logs[row_first_element_index:next_row_first_element_index])
-            row_column_indices = matrix.column_indices[row_first_element_index:\
+            row_elements = mat.signs[row_first_element_index:next_row_first_element_index]*\
+                    np.exp(mat.logs[row_first_element_index:next_row_first_element_index])
+            row_column_indices = mat.column_indices[row_first_element_index:\
                     next_row_first_element_index]
 
             row_solution = solution[row_column_indices]
- 
+
             if is_upper_triangular:
 
                 known_solution = row_solution[1:]

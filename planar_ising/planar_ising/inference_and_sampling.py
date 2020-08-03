@@ -11,6 +11,7 @@ from .. import common_utils
 from ..planar_graph import PlanarGraphEdges, PlanarGraph, PlanarGraphConstructor, Triangulator
 from ..lipton_tarjan import PlanarSeparator, separation_class
 from ..sparse_lu import CSRMatrix, SparseLU
+from mpmath import matrix
 
 
 class InferenceAndSampling:
@@ -41,7 +42,7 @@ class InferenceAndSampling:
         # print('triangulation completed')
         graph = self._ising_model.graph
         interaction_values = self._ising_model.interaction_values
-
+        # print('self._ising_model.interaction_values', self._ising_model.interaction_values)
         self._graph_edges_mapping, self._expanded_dual_graph = \
                 ExpandedDualGraphConstructor.construct(graph)
         # print('created expanded_dual_graph')
@@ -91,7 +92,8 @@ class InferenceAndSampling:
         Only supports inference.
         """
 
-        triangulated_interaction_values = np.zeros(self._ising_model.graph.edges_count)
+        triangulated_interaction_values = matrix(self._ising_model.graph.edges_count)
+        print('triangulated_interaction_values', triangulated_interaction_values)
         triangulated_interaction_values[self._new_edge_indices_mapping] = interaction_values
 
         self._ising_model.interaction_values = triangulated_interaction_values
@@ -120,7 +122,8 @@ class InferenceAndSampling:
             Log partition function.
         """
 
-        k_matrix = CSRMatrix(self._k_weight_signs, self._log_weights[self._k_weight_indices],
+        log_w = matrix([[self._log_weights[int(i)] for i in self._k_weight_indices]])
+        k_matrix = CSRMatrix(self._k_weight_signs, log_w,
                 self._k_column_indices, self._k_row_first_element_indices)
 
         # print('k_matrix:', self._k_weight_signs, self._log_weights[self._k_weight_indices],
@@ -128,9 +131,18 @@ class InferenceAndSampling:
         # print('Kast log Z:', .5*np.linalg.det(k_matrix) - self._ising_model.interaction_values.sum())
         l_matrix, u_matrix = SparseLU.factorize(k_matrix)
 
-        logdet = u_matrix.logs[u_matrix.row_first_element_indices[:-1]].sum()
+        # print('self._ising_model.interaction_values', self._ising_model.interaction_values)
+        # import pdb; pdb.set_trace()
+        # print('u_matrix.logs', u_matrix.logs)
+        # import pdb; pdb.set_trace()
+        logdet = 0
+        for idx in u_matrix.row_first_element_indices[:-1]:
+            logdet += u_matrix.logs[int(idx)]
 
-        logpf = logdet/2 + np.log(2) - self._ising_model.interaction_values.sum()
+        interaction_values_sum = 0
+        for el in self._ising_model.interaction_values:
+            interaction_values_sum += el
+        logpf = logdet/2 + np.log(2) - interaction_values_sum
 
         if not with_marginals:
             return logpf
